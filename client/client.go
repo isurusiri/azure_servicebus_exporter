@@ -1,7 +1,10 @@
 package client
 
 import (
+	"context"
 	"time"
+
+	servicebus "github.com/Azure/azure-service-bus-go"
 )
 
 // ServiceBusClient represents an Azure
@@ -60,5 +63,117 @@ func New(connectionString string, timeout time.Duration) *ServiceBusClient {
 	return &ServiceBusClient{
 		connectionString: connectionString,
 		timeout:          timeout,
+	}
+}
+
+// GetServiceBusStats returns servicebus metrics returned by azure.
+func (c *ServiceBusClient) GetServiceBusStats() (*Stats, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
+	ns, err := servicebus.NewNamespace(servicebus.NamespaceWithConnectionString(c.connectionString))
+	if err != nil {
+		return nil, err
+	}
+
+	queues, err := getQueueStats(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+
+	topics, err := getTopicStats(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Stats{
+		Queues: queues,
+		Topics: topics,
+	}, nil
+}
+
+func getQueueStats(ctx context.Context, ns *servicebus.Namespace) (*[]QueueStats, error) {
+	var result []QueueStats
+
+	queueManager := ns.NewQueueManager()
+
+	queues, err := queueManager.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, queue := range queues {
+		result = append(result, QueueStats{
+			Name:          queue.Name,
+			MessageCounts: countDetailsToMessageCounts(queue.CountDetails),
+			Sizes: Sizes{
+				SizeInBytes:  *queue.QueueDescription.SizeInBytes,
+				MaxSizeBytes: int64(*queue.QueueDescription.MaxSizeInMegabytes) * 1024 * 1024,
+			},
+		})
+	}
+
+	return &result, nil
+}
+
+func getTopicStats(ctx context.Context, ns *servicebus.Namespace) (*[]TopicStats, error) {
+	var result []TopicStats
+
+	topicManager := ns.NewTopicManager()
+
+	topics, err := topicManager.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, topic := range topics {
+		subs, err := getSubscriptionStats(ctx, ns, topic.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, TopicStats{
+			Name:          topic.Name,
+			MessageCounts: countDetailsToMessageCounts(topic.CountDetails),
+			Sizes: Sizes{
+				SizeInBytes:  *topic.TopicDescription.SizeInBytes,
+				MaxSizeBytes: int64(*topic.TopicDescription.MaxSizeInMegabytes) * 1024 * 1024,
+			},
+			Subscriptions: subs,
+		})
+	}
+
+	return &result, nil
+}
+
+func getSubscriptionStats(ctx context.Context, ns *servicebus.Namespace, topicName string) (*[]SubscriptionStats, error) {
+	var result []SubscriptionStats
+
+	subsManager, err := ns.NewSubscriptionManager(topicName)
+	if err != nil {
+		return nil, err
+	}
+
+	subs, err := subsManager.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sub := range subs {
+		result = append(result, SubscriptionStats{
+			Name:          sub.Name,
+			MessageCounts: countDetailsToMessageCounts(sub.CountDetails),
+		})
+	}
+	return &result, nil
+}
+
+func countDetailsToMessageCounts(countDetails *servicebus.CountDetails) MessageCounts {
+	return MessageCounts{
+		ActiveMessages:             *countDetails.ActiveMessageCount,
+		DeadLetterMessages:         *countDetails.DeadLetterMessageCount,
+		ScheduledMessages:          *countDetails.ScheduledMessageCount,
+		TransferDeadLetterMessages: *countDetails.TransferDeadLetterMessageCount,
+		TransferMessages:           *countDetails.TransferMessageCount,
 	}
 }
