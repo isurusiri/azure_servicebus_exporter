@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/namsral/flag"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/sirupsen/logrus"
@@ -84,8 +85,7 @@ func main() {
 
 	client := sb.New(config.connectionString, config.timeout)
 	coll := collector.New(client, log)
-	// Need to fix this
-	// prometheus.MustRegister(coll)
+	prometheus.MustRegister(coll)
 
 	startHTTPServer(config)
 }
