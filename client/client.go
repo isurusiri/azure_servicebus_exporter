@@ -58,7 +58,7 @@ type TopicStats struct {
 }
 
 // New accespts a connection string and a time duration
-// to create and return a new service bus client instance.
+// to create and return a reference to a service bus client instance.
 func New(connectionString string, timeout time.Duration) *ServiceBusClient {
 	return &ServiceBusClient{
 		connectionString: connectionString,
